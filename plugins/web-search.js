@@ -4,12 +4,11 @@
 // SearXNG (if configured) → DuckDuckGo HTML → Bing HTML fallback. No API key
 // required.
 //
-// Loaded automatically from ~/.config/opencode/plugins/. Fixed in-code config;
+// Loaded automatically from the opencode config dir's plugins/ folder — run
+// `opencode debug paths` to see the active config dir. Fixed in-code config;
 // edit the CONFIG block below to change the search tier, language or recency.
 //
 // Search engine functions derive from web-search-plugin v1.0.1 (MIT).
-
-import { tool } from "@opencode-ai/plugin";
 
 // --- CONFIG (fixed in code) -------------------------------------------------
 const CONFIG = {
@@ -86,37 +85,55 @@ async function scrapeDDG(query, max, time, locale = "en-us", signal) {
 async function scrapeBing(query, max, _time, signal) {
 	const html = await fetchSearchHtml("https://www.bing.com/search?q=" + encodeURIComponent(query) + "&count=" + max + "&setlang=en&cc=us", 10_000, signal);
 	const results = [];
-	const liRe = /<li class="b_algo">([\s\S]*?)<\/li>/g;
+	const liRe = /<li[^>]+class="[^"]*b_algo[^"]*"[^>]*>([\s\S]*?)<\/li>/g;
 	let m;
 	while ((m = liRe.exec(html)) !== null && results.length < max) {
 		const block = m[1];
-		const linkM = block.match(/<h2[^>]*>\s*<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+		const linkM = block.match(/<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
 		if (!linkM)
 			continue;
+		const url = decodeBingUrl(linkM[1]);
 		const title = stripTagsSearch(linkM[2]);
-		if (!title)
+		if (!url || !title)
 			continue;
 		const snipM = block.match(/<div class="b_caption"[^>]*>[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/) ??
 			block.match(/<p[^>]*>([\s\S]*?)<\/p>/);
-		results.push({ title, url: linkM[1], snippet: snipM ? stripTagsSearch(snipM[1]) : "" });
+		results.push({ title, url, snippet: snipM ? stripTagsSearch(snipM[1]) : "" });
 	}
 	return results;
 }
+/** Bing wraps results in https://www.bing.com/ck/a?...&u=a1<base64url> — unwrap to the real URL. */
+function decodeBingUrl(href) {
+	let url = decodeHtmlEntities(href);
+	const u = url.match(/[?&]u=a1([A-Za-z0-9_\-]+)/);
+	if (u) {
+		try {
+			url = Buffer.from(u[1], "base64url").toString("utf8");
+		}
+		catch { /* keep as-is */ }
+	}
+	return url.startsWith("http") && !url.includes("bing.com") ? url : "";
+}
 async function searchSearXNG(baseUrl, query, max, timeoutMs = 10_000, time, signal) {
 	const params = { q: query, format: "json" };
-	if (time)
-		params["time_range"] = SEARXNG_TIME[time] ?? "";
+	const tr = SEARXNG_TIME[time];
+	if (tr)
+		params["time_range"] = tr;
 	const url = baseUrl.replace(/\/$/, "") + "/search?" + new URLSearchParams(params);
 	const fetchSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
 	const res = await fetch(url, { signal: fetchSignal, headers: { "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" } });
 	if (!res.ok)
 		throw new Error(`SearXNG HTTP ${res.status}`);
 	const data = await res.json();
-	return (data.results ?? []).slice(0, max).map((r) => ({
-		title: r.title ?? "",
-		url: r.url ?? "",
-		snippet: r.content ?? "",
-	}));
+	return (data.results ?? []).slice(0, max).map((r) => {
+		const t = Date.parse(r.publishedDate ?? "");
+		return {
+			title: r.title ?? "",
+			url: r.url ?? "",
+			snippet: r.content ?? "",
+			...(Number.isFinite(t) ? { time: { published: t } } : {}),
+		};
+	});
 }
 /** Tiered keyless search: SearXNG (if configured) → DDG → Bing. */
 async function searchWeb(query, maxResults, time, locale, searxngUrl, signal) {
@@ -184,7 +201,7 @@ async function rerankHits(query, hits, baseUrl, model) {
 	}
 }
 
-// --- plugin -----------------------------------------------------------------
+// --- plugin (opencode v2) ----------------------------------------------------
 
 function formatResults(query, hits) {
 	if (hits.length === 0)
@@ -196,38 +213,69 @@ function formatResults(query, hits) {
 	return `Web search results for "${query}":\n\n${lines.join("\n\n")}`;
 }
 
-export const WebSearch = async () => {
-	return {
-		tool: {
-			web_search: tool({
+// Contract (v2.1.4): default export = { id, setup(context) }. Two surfaces:
+//  1. context.tool.transform -> editor.add: Code Mode tool `web_search`.
+//  2. context.websearch.transform -> editor.add + default.set: registers as a
+//     keyless provider of the built-in `websearch` tool. The host validates
+//     provider results against WebSearch.Result, where `time` is a REQUIRED
+//     struct ({ published?: number }) — omitting it fails decode with 503.
+
+export default {
+	id: "web-search",
+	setup: (context) => {
+		context.tool.transform((editor) => {
+			editor.add({
+				name: "web_search",
 				description:
 					"Keyless web search (SearXNG → DuckDuckGo → Bing). Returns a list of " +
 					"results with title, URL and snippet for the given query. No API key required.",
-				args: {
-					query: tool.schema.string().describe("Search query"),
-					maxResults: tool.schema
-						.number()
-						.int()
-						.min(3)
-						.max(20)
-						.optional()
-						.describe("Number of results to return (3-20)"),
+				input: {
+					type: "object",
+					properties: {
+						query: { type: "string", description: "Search query" },
+						maxResults: {
+							type: "integer",
+							minimum: 3,
+							maximum: 20,
+							description: "Number of results to return (3-20)",
+						},
+					},
+					required: ["query"],
 				},
-				async execute(args, context) {
-					const maxResults = args.maxResults ?? CONFIG.defaultMax;
-					let hits = await searchWeb(
-						args.query,
-						maxResults,
-						CONFIG.time,
-						CONFIG.locale,
-						CONFIG.searxngUrl,
-						context.abort,
-					);
-					if (CONFIG.embeddingsUrl && hits.length > 1)
-						hits = await rerankHits(args.query, hits, CONFIG.embeddingsUrl, CONFIG.rerankModel);
-					return { title: `Web search: ${args.query}`, output: formatResults(args.query, hits) };
+				async execute(input, ctx) {
+					const hits = await runSearch(input.query, input.maxResults ?? CONFIG.defaultMax, ctx.signal);
+					return { content: formatResults(input.query, hits) };
 				},
-			}),
-		},
-	};
+			});
+		});
+		context.websearch?.transform((editor) => {
+			editor.add({
+				id: "keyless",
+				name: "Keyless (SearXNG → DuckDuckGo → Bing)",
+				execute: async (input, ctx) => {
+					try {
+						const hits = await runSearch(input.query, CONFIG.defaultMax, ctx?.signal);
+						console.log("[web-search] provider keyless ok:", hits.length, "hits");
+						return hits.map((h) => ({
+							url: h.url,
+							...(h.title ? { title: h.title } : {}),
+							...(h.snippet ? { content: h.snippet } : {}),
+							time: h.time ?? {},
+						}));
+					} catch (e) {
+						console.error("[web-search] provider keyless FAILED:", e?.stack ?? e);
+						throw e;
+					}
+				},
+			});
+			editor.default.set("keyless");
+		});
+	},
 };
+
+async function runSearch(query, max, signal) {
+	let hits = await searchWeb(query, max, CONFIG.time, CONFIG.locale, CONFIG.searxngUrl, signal);
+	if (CONFIG.embeddingsUrl && hits.length > 1)
+		hits = await rerankHits(query, hits, CONFIG.embeddingsUrl, CONFIG.rerankModel);
+	return hits;
+}
