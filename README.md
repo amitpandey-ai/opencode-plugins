@@ -59,6 +59,10 @@ Invoke-WebRequest -Uri https://raw.githubusercontent.com/amitpandey-ai/opencode-
 Project-level instead of global (same on every OS): put the file in
 `.opencode/plugins/` inside your project — it loads the same way.
 
+No `opencode.json` changes are needed — files in the plugins directories are
+auto-loaded at startup. The `"plugin": [...]` array in `opencode.json` is only
+for plugins published as **npm packages**.
+
 After installing, **restart opencode** — plugins load at startup.
 
 ## Usage

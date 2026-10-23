@@ -39,6 +39,9 @@ console.log(r.output);
 
 - Files in `~/.config/opencode/plugins/` or `.opencode/plugins/` auto-load at
   startup; npm plugins go in the `plugin` array of opencode.json instead.
+  File plugins do NOT need an opencode.json entry (confirmed in v2.0.32 logs
+  + `packages/core/src/plugin/source-directory.ts`). Plugin load failures are
+  logged to `~/.local/share/opencode/log/opencode.log` ("failed to load plugin").
 - Paths are XDG-based on every OS (verified in `packages/util/src/global-roots.ts`):
   global config dir is `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode` —
   on native Windows that is `C:\Users\<name>\.config\opencode` (`~` = user profile).
