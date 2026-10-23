@@ -15,20 +15,32 @@ opencode's built-in `websearch` tool only works with the OpenCode provider
 (or `OPENCODE_ENABLE_EXA`/`OPENCODE_ENABLE_PARALLEL`). `web_search` works
 with **any** provider — including local models — without any API key.
 
-## Install (simple prompt)
+## Install
 
-Paste this into an opencode session:
+### Option A — ask opencode (any OS, one paste)
+
+Paste this into an opencode session — opencode resolves its own config
+directory and shell, so this works on macOS, Linux and Windows:
 
 ```txt
-Install the web-search plugin for opencode:
-1. mkdir -p ~/.config/opencode/plugins
-2. curl -fsSL -o ~/.config/opencode/plugins/web-search.js https://raw.githubusercontent.com/amitpandey-ai/opencode-plugins/main/plugins/web-search.js
-3. Tell me when done (opencode must be restarted for the plugin to load).
+Install an opencode plugin:
+1. Find your global opencode plugin directory (the directory containing your global opencode.json, plus a "plugins" subfolder; usually ~/.config/opencode/plugins). Create it if missing.
+2. Download https://raw.githubusercontent.com/amitpandey-ai/opencode-plugins/main/plugins/web-search.js into that directory as web-search.js
+3. Confirm the file was written and tell me to restart opencode to load it.
 ```
 
-Then restart opencode.
+### Option B — manual
 
-Or do it manually:
+Global plugin directory:
+
+| OS | Path |
+|---|---|
+| macOS / Linux | `~/.config/opencode/plugins/` |
+| Windows (PowerShell) | `$HOME\.config\opencode\plugins\` (i.e. `C:\Users\<you>\.config\opencode\plugins\`) |
+
+> If `XDG_CONFIG_HOME` is set, use `$XDG_CONFIG_HOME/opencode/plugins/`.
+
+macOS / Linux:
 
 ```sh
 mkdir -p ~/.config/opencode/plugins
@@ -36,8 +48,18 @@ curl -fsSL -o ~/.config/opencode/plugins/web-search.js \
   https://raw.githubusercontent.com/amitpandey-ai/opencode-plugins/main/plugins/web-search.js
 ```
 
-Project-level instead of global? Put the file in `.opencode/plugins/` inside
-your project — it loads the same way.
+Windows (PowerShell):
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.config\opencode\plugins" | Out-Null
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/amitpandey-ai/opencode-plugins/main/plugins/web-search.js `
+  -OutFile "$HOME\.config\opencode\plugins\web-search.js"
+```
+
+Project-level instead of global (same on every OS): put the file in
+`.opencode/plugins/` inside your project — it loads the same way.
+
+After installing, **restart opencode** — plugins load at startup.
 
 ## Usage
 

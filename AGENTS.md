@@ -39,6 +39,9 @@ console.log(r.output);
 
 - Files in `~/.config/opencode/plugins/` or `.opencode/plugins/` auto-load at
   startup; npm plugins go in the `plugin` array of opencode.json instead.
+- Paths are XDG-based on every OS (verified in `packages/util/src/global-roots.ts`):
+  global config dir is `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode` —
+  on native Windows that is `C:\Users\<name>\.config\opencode` (`~` = user profile).
 - A plugin tool with the same name as a built-in tool overrides the built-in.
 - Built-in `websearch` is gated (OpenCode provider or `OPENCODE_ENABLE_EXA` /
   `OPENCODE_ENABLE_PARALLEL`); built-in `webfetch` is keyless and unrestricted.
